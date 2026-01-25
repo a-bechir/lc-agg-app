@@ -67,8 +67,23 @@ with col2:
 @st.cache_data
 def load_historical_data():
     """Load historical data from Excel | تحميل البيانات التاريخية من Excel"""
-    data_path = Path(__file__).parent.parent.parent / 'Data'
-    excel_file = data_path / 'Local content historical records Over All.xlsx'
+    # Try multiple path configurations for different deployment environments
+    possible_paths = [
+        Path(__file__).parent.parent.parent / 'Data' / 'Local content historical records Over All.xlsx',  # Local development
+        Path(__file__).parent.parent.parent.parent / 'Data' / 'Local content historical records Over All.xlsx',  # Alternative local
+        Path('Data') / 'Local content historical records Over All.xlsx',  # Relative to repo root
+        Path('models/Model_1_Aggregated_v2') / 'Data' / 'Local content historical records Over All.xlsx',  # Local model folder
+    ]
+    
+    excel_file = None
+    for path in possible_paths:
+        if path.exists():
+            excel_file = path
+            break
+    
+    if excel_file is None:
+        st.error(f"❌ Excel file not found. Expected: 'Local content historical records Over All.xlsx'")
+        st.stop()
     
     # Load Summary sheet for total values
     df_summary = pd.read_excel(excel_file, sheet_name='Summary', header=None)
