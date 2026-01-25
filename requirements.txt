@@ -1,0 +1,20 @@
+# Core Data Processing
+pandas>=1.3.0
+numpy>=1.21.0
+openpyxl>=3.0.0
+
+# Visualization & Dashboard
+plotly>=5.0.0
+streamlit>=1.28.0
+
+# Machine Learning & Statistical Analysis (Model 3)
+scikit-learn>=1.0.0
+statsmodels>=0.13.0
+
+# Optional: Advanced ML Models
+# tensorflow>=2.10.0  # For deep learning models
+# torch>=1.13.0       # For PyTorch models
+
+# Development Tools
+pytest>=7.0.0
+jupyter>=1.0.0
