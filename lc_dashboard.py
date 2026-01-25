@@ -28,6 +28,13 @@ st.markdown("""
         border-left: 4px solid #1f77b4;
     }
     
+    .stMetric > div:nth-child(1) {
+        word-wrap: break-word;
+        word-break: break-word;
+        white-space: normal;
+        overflow-wrap: break-word;
+    }
+    
     .metric-base { border-left-color: #2ca02c !important; }
     .metric-conservative { border-left-color: #ff7f0e !important; }
     .metric-optimistic { border-left-color: #d62728 !important; }
@@ -44,43 +51,54 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Local Content Forecasting Dashboard")
+st.title("📈 Local Content Forecasting Dashboard")
 st.divider()
 
+# Display IHCC Logo
+col1, col2 = st.columns([1, 4])
+with col1:
+    logo_path = Path(__file__).parent / 'IHCC Logo.jpeg'
+    if logo_path.exists():
+        st.image(str(logo_path), width=100)
+with col2:
+    st.write("")
+
 # --- Load Data | تحميل البيانات ---
-@st.cache_data
-def load_forecast_data():
-    """Load forecast data from CSV | تحميل بيانات التنبؤ من CSV"""
-    data_path = Path(__file__).parent / 'LC_Full_Forecast_ALL_SCENARIOS.csv'
-    
-    if not data_path.exists():
-        st.error(f"❌ Data file not found: {data_path}")
-        st.info("💡 Run `lc_processor.py` first to generate forecast data.")
-        st.stop()
-    
-    return pd.read_csv(data_path)
-
-
 @st.cache_data
 def load_historical_data():
     """Load historical data from Excel | تحميل البيانات التاريخية من Excel"""
     data_path = Path(__file__).parent.parent.parent / 'Data'
     excel_file = data_path / 'Local content historical records Over All.xlsx'
-    df_excel = pd.read_excel(excel_file, sheet_name='Summary', header=None)
+    
+    # Load Summary sheet for total values
+    df_summary = pd.read_excel(excel_file, sheet_name='Summary', header=None)
+    
+    # Load Workforce-Records sheet for Saudi vs Foreign breakdown
+    df_workforce = pd.read_excel(excel_file, sheet_name='Workforce-Records', header=0)
     
     hist_data = []
     for i, year in enumerate([2024, 2023, 2022, 2021]):
         idx = i + 2
+        
+        # Get Saudi and Foreign compensation
+        workforce_row = df_workforce[df_workforce['Year'] == year].iloc[0]
+        saudi_comp = float(workforce_row['Saudi Compensation (SAR)']) if pd.notna(workforce_row['Saudi Compensation (SAR)']) else 0
+        foreign_lc = float(workforce_row['Foreign LC Value (SAR)']) if pd.notna(workforce_row['Foreign LC Value (SAR)']) else 0
+        
+        # Get LC from Compensation/labor from Summary sheet (column 1)
+        lc_from_workforce = float(df_summary.iloc[idx, 1]) if pd.notna(df_summary.iloc[idx, 1]) else 0
+        
         hist_data.append({
             'Year': year,
             'Type': 'Actual',
-            'Compensation': float(df_excel.iloc[idx, 1]),
-            'Goods_Services': float(df_excel.iloc[idx, 2]),
-            'CapEx': float(df_excel.iloc[idx, 3]),
-            'Training': float(df_excel.iloc[idx, 4]),
-            'Depreciation': float(df_excel.iloc[idx, 5]),
-            'Total_LC': float(df_excel.iloc[idx, 6]),
-            'Total_Cost': float(df_excel.iloc[idx, 7])
+            'Saudi_Compensation': saudi_comp,
+            'Foreign_Compensation': foreign_lc,
+            'LC_from_Workforce': lc_from_workforce,
+            'Goods_Services': float(df_summary.iloc[idx, 2]),
+            'Training': float(df_summary.iloc[idx, 4]),
+            'Depreciation': float(df_summary.iloc[idx, 5]),
+            'Total_LC': float(df_summary.iloc[idx, 6]),
+            'Total_Cost': float(df_summary.iloc[idx, 7])
         })
     
     return pd.DataFrame(hist_data).sort_values('Year')
@@ -93,21 +111,23 @@ def generate_custom_forecast(df_hist, growth_rates):
     forecast_data = []
     for year in [2025, 2026, 2027, 2028]:
         n = year - 2024
-        comp = last_actual['Compensation'] * ((1 + growth_rates['comp']) ** n)
+        saudi = last_actual['Saudi_Compensation'] * ((1 + growth_rates['saudi']) ** n)
+        foreign = last_actual['Foreign_Compensation'] * ((1 + growth_rates['foreign']) ** n)
         goods = last_actual['Goods_Services'] * ((1 + growth_rates['goods']) ** n)
-        capex = last_actual['CapEx'] * ((1 + growth_rates['capex']) ** n)
         train = last_actual['Training'] * ((1 + growth_rates['train']) ** n)
         depr = last_actual['Depreciation']
+        lc_workforce = last_actual['LC_from_Workforce'] * ((1 + growth_rates['saudi']) ** n)
         
-        total_lc = comp + goods + capex + train + depr
+        total_lc = saudi + foreign + goods + train + depr
         total_cost = last_actual['Total_Cost'] * ((1 + growth_rates['cost']) ** n)
         
         forecast_data.append({
             'Year': year,
             'Type': 'Forecast',
-            'Compensation': comp,
+            'Saudi_Compensation': saudi,
+            'Foreign_Compensation': foreign,
+            'LC_from_Workforce': lc_workforce,
             'Goods_Services': goods,
-            'CapEx': capex,
             'Training': train,
             'Depreciation': depr,
             'Total_LC': total_lc,
@@ -124,7 +144,6 @@ def generate_custom_forecast(df_hist, growth_rates):
     return df_combined
 
 
-df_all = load_forecast_data()
 df_hist = load_historical_data()
 
 # Calculate default assumptions from historical data | حساب الافتراضات الافتراضية من البيانات التاريخية
@@ -134,7 +153,7 @@ def calculate_assumptions_from_history(df_hist):
     
     # Calculate YoY growth rates
     growth_rates = {}
-    for col in ['Compensation', 'Goods_Services', 'CapEx', 'Training', 'Total_Cost']:
+    for col in ['Saudi_Compensation', 'Foreign_Compensation', 'Goods_Services', 'Training', 'Total_Cost']:
         values = df_sorted[col].values
         yoy_growth = []
         for i in range(1, len(values)):
@@ -152,9 +171,9 @@ def calculate_assumptions_from_history(df_hist):
     
     # Map to scenario keys
     base_rates = {
-        'comp': round(growth_rates['Compensation'], 1),
+        'saudi': round(growth_rates['Saudi_Compensation'], 1),
+        'foreign': round(growth_rates['Foreign_Compensation'], 1),
         'goods': round(growth_rates['Goods_Services'], 1),
-        'capex': round(growth_rates['CapEx'], 1),
         'train': round(growth_rates['Training'], 1),
         'cost': round(growth_rates['Total_Cost'], 1)
     }
@@ -176,23 +195,26 @@ with st.expander("ℹ️ View Calculated Assumptions", expanded=False):
     st.markdown("**Base (from historical data):**")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.write(f"💰 Compensation: {base_assumptions['comp']}%")
-        st.write(f"📦 Goods & Services: {base_assumptions['goods']}%")
+        st.write(f"🇸🇦 Saudi-Workforce: {base_assumptions['saudi']}%")
+        st.write(f"🌍 Foreign-Workforce: {base_assumptions['foreign']}%")
     with col2:
-        st.write(f"🏗️ CapEx: {base_assumptions['capex']}%")
+        st.write(f"📦 Goods & Services: {base_assumptions['goods']}%")
         st.write(f"🎓 Training: {base_assumptions['train']}%")
     with col3:
         st.write(f"📊 Total Cost: {base_assumptions['cost']}%")
     
     st.markdown("**Conservative (70% of Base):**")
     cons = SCENARIO_ASSUMPTIONS['Conservative']
-    st.write(f"Comp: {cons['comp']}% | Goods: {cons['goods']}% | CapEx: {cons['capex']}% | Train: {cons['train']}%")
+    st.write(f"Saudi: {cons['saudi']}% | Foreign: {cons['foreign']}% | Goods: {cons['goods']}% | Train: {cons['train']}%")
     
     st.markdown("**Optimistic (130% of Base):**")
     opt = SCENARIO_ASSUMPTIONS['Optimistic']
-    st.write(f"Comp: {opt['comp']}% | Goods: {opt['goods']}% | CapEx: {opt['capex']}% | Train: {opt['train']}%")
+    st.write(f"Saudi: {opt['saudi']}% | Foreign: {opt['foreign']}% | Goods: {opt['goods']}% | Train: {opt['train']}%")
 
 # --- Sidebar Controls | عناصر التحكم الجانبية ---
+logo_path = Path(__file__).parent / 'IHCC Logo.jpeg'
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), width=100)
 st.sidebar.header("⚙️ Configuration")
 
 # Mode selection
@@ -205,7 +227,7 @@ mode = st.sidebar.radio(
 if mode == "📊 View Scenarios":
     st.sidebar.markdown("### 📈 Select Scenario")
     
-    available_scenarios = sorted(df_all['Scenario'].unique())
+    available_scenarios = ['base', 'conservative', 'optimistic']
     selected_scenario = st.sidebar.selectbox(
         "Scenario",
         available_scenarios,
@@ -217,43 +239,68 @@ if mode == "📊 View Scenarios":
     assumptions = SCENARIO_ASSUMPTIONS.get(scenario_key, SCENARIO_ASSUMPTIONS['Base'])
     
     # Display scenario assumptions
-    st.sidebar.markdown("### 📊 Assumptions")
+    st.sidebar.markdown("### 📊 Assumptions (from Historical Data)")
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        st.metric("💰 Compensation", f"{assumptions['comp']}%")
-        st.metric("🏗️ Capital Expenses", f"{assumptions['capex']}%")
-    with col2:
+        st.metric("🇸🇦 Saudi-Workforce", f"{assumptions['saudi']}%")
         st.metric("📦 Goods & Services", f"{assumptions['goods']}%")
+    with col2:
+        st.metric("🌍 Foreign-Workforce", f"{assumptions['foreign']}%")
         st.metric("🎓 Training", f"{assumptions['train']}%")
     
-    # Filter data by selected scenario
-    df_scenario = df_all[df_all['Scenario'] == selected_scenario].copy()
+    # Generate forecast with selected scenario assumptions
+    scenario_multipliers = {
+        'base': 1.0,
+        'conservative': 0.7,
+        'optimistic': 1.3
+    }
+    
+    multiplier = scenario_multipliers.get(selected_scenario, 1.0)
+    
+    # Apply multiplier to assumptions
+    active_assumptions = {
+        'saudi': assumptions['saudi'] * multiplier / 100,
+        'foreign': assumptions['foreign'] * multiplier / 100,
+        'goods': assumptions['goods'] * multiplier / 100,
+        'train': assumptions['train'] * multiplier / 100,
+        'cost': assumptions['cost'] * multiplier / 100
+    }
+    
+    # Generate forecast with active assumptions
+    df_scenario = generate_custom_forecast(df_hist, active_assumptions)
     scenario_name = scenario_key
     
 else:
     st.sidebar.markdown("### 🎯 Custom Growth Rates")
-    st.sidebar.markdown("Adjust the growth rates below")
+    st.sidebar.markdown("Adjust the growth rates below (currently at Base Scenario values)")
     
-    st.sidebar.write("**💰 Compensation Growth (%)**")
-    g_comp = st.sidebar.slider("Compensation", 0, 30, 8, key="comp") / 100
+    # Dynamic max values for sliders based on base assumptions
+    max_saudi = max(50, int(base_assumptions['saudi']) + 10)
+    max_foreign = max(50, int(base_assumptions['foreign']) + 10)
+    max_goods = max(50, int(base_assumptions['goods']) + 10)
+    max_train = max(50, int(base_assumptions['train']) + 10)
+    max_cost = max(50, int(base_assumptions['cost']) + 10)
+    
+    st.sidebar.write("**🇸🇦 Saudi-Workforce Growth (%)**")
+    g_saudi = st.sidebar.slider("Saudi-Workforce", 0, max_saudi, int(base_assumptions['saudi']), key="saudi") / 100
+    
+    st.sidebar.write("**🌍 Foreign-Workforce Growth (%)**")
+    g_foreign = st.sidebar.slider("Foreign-Workforce", 0, max_foreign, int(base_assumptions['foreign']), key="foreign") / 100
     
     st.sidebar.write("**📦 Goods & Services Growth (%)**")
-    g_goods = st.sidebar.slider("Goods & Services", 0, 30, 12, key="goods") / 100
-    
-    st.sidebar.write("**🏗️ Capital Expenses Growth (%)**")
-    g_capex = st.sidebar.slider("Capital Expenses", 0, 30, 10, key="capex") / 100
+    g_goods = st.sidebar.slider("Goods & Services", 0, max_goods, int(base_assumptions['goods']), key="goods") / 100
     
     st.sidebar.write("**🎓 Training Growth (%)**")
-    g_train = st.sidebar.slider("Training", 0, 30, 10, key="train") / 100
+    g_train = st.sidebar.slider("Training", 0, max_train, int(base_assumptions['train']), key="train") / 100
     
     st.sidebar.write("**📊 Total Cost Growth (%)**")
-    g_cost = st.sidebar.slider("Total Cost", 0, 30, 8, key="cost") / 100
+    g_cost = st.sidebar.slider("Total Cost", 0, max_cost, int(base_assumptions['cost']), key="cost") / 100
     
     # Generate custom forecast
     custom_growth = {
-        'comp': g_comp,
+        'saudi': g_saudi,
+        'foreign': g_foreign,
         'goods': g_goods,
-        'capex': g_capex,
         'train': g_train,
         'cost': g_cost
     }
@@ -283,7 +330,7 @@ available_years = sorted(df_scenario['Year'].unique())
 selected_year = st.sidebar.select_slider(
     "Select Year",
     options=available_years,
-    value=available_years[-1]
+    value=2025
 )
 
 # Get data for selected year
@@ -348,7 +395,7 @@ with col4:
 st.divider()
 
 # --- Charts | الرسوم البيانية ---
-st.markdown("## 📈 Analysis & Visualization")
+st.markdown("## Local Content Analysis & Visualization")
 
 tabs = st.tabs(["📊 Trend", "📦 Components", "🔍 Comparison"])
 
@@ -363,8 +410,12 @@ with tabs[0]:
         markers=True,
         title=f"Historical vs Forecasted LC Score ({scenario_name})",
         labels={"LC_Score_%": "LC Score (%)", "Year": "Year"},
-        color_discrete_map={"Actual": "#1f77b4", "Forecast": "#ff7f0e"}
+        color_discrete_map={"Actual": "#1f77b4", "Forecast": "#ff7f0e"},
+        text="LC_Score_%"
     )
+    
+    # Format text on markers to show 2 decimal places
+    fig1.for_each_trace(lambda t: t.update(textposition="middle left", texttemplate="%{text:.2f}%", textfont=dict(size=14, color="black")))
     
     # Add vertical line for selected year
     fig1.add_vline(
@@ -373,6 +424,16 @@ with tabs[0]:
         line_color="green",
         annotation_text=f"Year {selected_year}",
         annotation_position="top right"
+    )
+    
+    # Add benchmark line at 40%
+    fig1.add_hline(
+        y=40,
+        line_dash="dash",
+        line_color="gold",
+        annotation_text="Benchmark: 40%",
+        annotation_position="right",
+        annotation_font_size=11
     )
     
     # Add trend line for historical data
@@ -387,10 +448,14 @@ with tabs[0]:
     
     fig1.update_layout(
         hovermode='x unified',
-        height=450,
+        height=550,
         template="plotly_white",
-        font=dict(size=12)
+        font=dict(size=14, family="Arial, sans-serif", color="black"),
+        title_font=dict(size=16, family="Arial, sans-serif"),
+        margin=dict(t=100, b=80, l=80, r=80)
     )
+    fig1.update_xaxes(title_font=dict(size=14, color="black"), tickfont=dict(size=12, color="black"))
+    fig1.update_yaxes(title_font=dict(size=14, color="black"), tickfont=dict(size=12, color="black"))
     fig1.update_traces(marker=dict(size=8))
     st.plotly_chart(fig1, use_container_width=True)
     
@@ -399,10 +464,10 @@ with tabs[0]:
         st.markdown("**Year-over-Year Growth from Actual Data:**")
         growth_col1, growth_col2, growth_col3 = st.columns(3)
         with growth_col1:
-            st.write(f"💰 Compensation: **{base_assumptions['comp']}%**")
-            st.write(f"📦 Goods & Services: **{base_assumptions['goods']}%**")
+            st.write(f"🇸🇦 Saudi Comp.: **{base_assumptions['saudi']}%**")
+            st.write(f"🌍 Foreign Comp.: **{base_assumptions['foreign']}%**")
         with growth_col2:
-            st.write(f"🏗️ CapEx: **{base_assumptions['capex']}%**")
+            st.write(f"📦 Goods & Services: **{base_assumptions['goods']}%**")
             st.write(f"🎓 Training: **{base_assumptions['train']}%**")
         with growth_col3:
             st.write(f"📊 Total Cost: **{base_assumptions['cost']}%**")
@@ -411,17 +476,17 @@ with tabs[0]:
     # Show metrics for selected year
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
-        st.metric("💯 LC Score (%)", f"{year_data['LC_Score_%']:.2f}", help="Local Content Percentage - The percentage of local spending relative to total project cost")
+        st.metric("💯 LC Score (%)", f"{year_data['LC_Score_%']:.2f}", help="Local Content Percentage")
     with col2:
-        st.metric("💰 Compensation (SAR)", f"{year_data['Compensation']/1e6:.2f}M", help="Employee Compensation & Benefits")
+        st.metric("💼 LC from Workforce (SAR)", f"{year_data['LC_from_Workforce']/1e6:.2f}M", help="Total LC from Compensation/Labor")
     with col3:
-        st.metric("📦 Goods & Services (SAR)", f"{year_data['Goods_Services']/1e6:.2f}M", help="Procurement of Goods and Services")
+        st.metric("🇸🇦 Saudi-Workforce (SAR)", f"{year_data['Saudi_Compensation']/1e6:.2f}M", help="Saudi-Workforce")
     with col4:
-        st.metric("🏗️ Capital Expenses (SAR)", f"{year_data['CapEx']/1e6:.2f}M", help="Capital Expenses - Investment in equipment and infrastructure")
+        st.metric("🌍 Foreign-Workforce (SAR)", f"{year_data['Foreign_Compensation']/1e6:.2f}M", help="Foreign-Workforce")
     with col5:
-        st.metric("🎓 Training (SAR)", f"{year_data['Training']/1e6:.2f}M", help="Employee Training & Development Programs")
+        st.metric("📦 Goods & Services (SAR)", f"{year_data['Goods_Services']/1e6:.2f}M", help="Goods and Services")
     with col6:
-        st.metric("💧 Depreciation (SAR)", f"{year_data['Depreciation']/1e6:.2f}M", help="Asset Depreciation & Amortization")
+        st.metric("🎓 Training (SAR)", f"{year_data['Training']/1e6:.2f}M", help="Training Programs")
 
 with tabs[1]:
     st.markdown("### Component Analysis")
@@ -432,7 +497,7 @@ with tabs[1]:
         fig2 = px.bar(
             df_scenario,
             x="Year",
-            y=["Compensation", "Goods_Services", "CapEx", "Training"],
+            y=["Saudi_Compensation", "Foreign_Compensation", "Goods_Services", "Training"],
             title="LC Components Growth Over Time",
             labels={"value": "Amount (SAR)", "variable": "Component"},
             barmode="group"
@@ -449,9 +514,9 @@ with tabs[1]:
         # Breakdown for selected year
         selected_data = df_scenario[df_scenario['Year'] == selected_year].iloc[0]
         components = {
-            'Compensation': selected_data['Compensation'],
+            'Saudi-Workforce': selected_data['Saudi_Compensation'],
+            'Foreign-Workforce': selected_data['Foreign_Compensation'],
             'Goods & Services': selected_data['Goods_Services'],
-            'CapEx': selected_data['CapEx'],
             'Training': selected_data['Training'],
             'Depreciation': selected_data['Depreciation']
         }
@@ -473,7 +538,31 @@ with tabs[2]:
     
     if mode == "📊 View Scenarios":
         # Get values for selected year across all scenarios
-        scenarios_year = df_all[df_all['Year'] == selected_year].copy()
+        scenarios_list = []
+        for scenario in ['base', 'conservative', 'optimistic']:
+            scenario_multipliers = {
+                'base': 1.0,
+                'conservative': 0.7,
+                'optimistic': 1.3
+            }
+            multiplier = scenario_multipliers.get(scenario, 1.0)
+            active_assumptions = {
+                'saudi': base_assumptions['saudi'] * multiplier / 100,
+                'foreign': base_assumptions['foreign'] * multiplier / 100,
+                'goods': base_assumptions['goods'] * multiplier / 100,
+                'train': base_assumptions['train'] * multiplier / 100,
+                'cost': base_assumptions['cost'] * multiplier / 100
+            }
+            df_temp = generate_custom_forecast(df_hist, active_assumptions)
+            year_row = df_temp[df_temp['Year'] == selected_year].iloc[0]
+            scenarios_list.append({
+                'Scenario': scenario,
+                'Total_LC': year_row['Total_LC'],
+                'Total_Cost': year_row['Total_Cost'],
+                'LC_Score_%': year_row['LC_Score_%']
+            })
+        
+        scenarios_year = pd.DataFrame(scenarios_list)
         
         col1, col2 = st.columns(2)
         
@@ -514,26 +603,267 @@ with tabs[2]:
 
 st.divider()
 
+# --- Component Effectiveness Analysis ---
+st.markdown("## 📊 Component Effectiveness Analysis")
+
+# Display formula
+with st.expander("📐 View LC Score Formula", expanded=False):
+    st.markdown("""
+    ### LC Score Calculation Formula:
+    
+    **LC Score (%) = (Total LC Contribution / Total Project Cost) × 100**
+    
+    Where:
+    - **Total LC Contribution** = Sum of all Local Content sources:
+        - LC from Compensation/Labor (Saudi + Foreign)
+        - LC from Goods & Services
+        - LC from Training Programs
+        - LC from Depreciation & Amortization
+        - LC from Capital Expenses
+        
+    - **Total Project Cost** = All relevant operating costs in Saudi Arabia
+    
+    ### LC Impact on Each Component:
+    
+    Each component's impact on the LC Score is calculated as:
+    
+    **Impact on LC Score (%) = (Component Value / Total Project Cost) × 100**
+    
+    This shows the direct contribution of each component to achieving the overall LC Score target.
+    """)
+
+if mode == "📊 View Scenarios":
+    # Calculate contribution of each component to LC Score
+    effectiveness_data = []
+    
+    for idx, row in df_scenario.iterrows():
+        total_lc = row['Total_LC']
+        total_cost = row['Total_Cost']
+        
+        components_list = [
+            ('🇸🇦 Saudi-Workforce', row['Saudi_Compensation']),
+            ('🌍 Foreign-Workforce', row['Foreign_Compensation']),
+            ('📦 Goods & Services', row['Goods_Services']),
+            ('🎓 Training', row['Training']),
+            ('Depreciation', row['Depreciation'])
+        ]
+        
+        for comp_name, comp_value in components_list:
+            # Calculate contribution to Total LC
+            lc_contribution = (comp_value / total_lc * 100) if total_lc != 0 else 0
+            # Calculate impact on LC Score
+            lc_score_impact = (comp_value / total_cost * 100) if total_cost != 0 else 0
+            
+            effectiveness_data.append({
+                'Year': int(row['Year']),
+                'Component': comp_name,
+                'Value (SAR)': int(comp_value),
+                'Contribution to LC (%)': round(lc_contribution, 2),
+                'Impact on LC Score (%)': round(lc_score_impact, 2)
+            })
+    
+    effectiveness_df = pd.DataFrame(effectiveness_data)
+    
+    # Define component order for consistency
+    component_order = ['🇸🇦 Saudi-Workforce', '🌍 Foreign-Workforce', '📦 Goods & Services', '🎓 Training', 'Depreciation']
+    effectiveness_df['Component'] = pd.Categorical(effectiveness_df['Component'], categories=component_order, ordered=True)
+    effectiveness_df = effectiveness_df.sort_values('Component')
+    
+    # Show effectiveness for selected year
+    selected_effectiveness = effectiveness_df[effectiveness_df['Year'] == selected_year].copy()
+    selected_effectiveness = selected_effectiveness.sort_values('Component')
+    
+    st.markdown(f"### {selected_year} - Component Impact on LC Score")
+    st.dataframe(
+        selected_effectiveness.style.format({
+            'Value (SAR)': "{:,.0f}",
+            'Contribution to LC (%)': "{:.2f}%",
+            'Impact on LC Score (%)': "{:.2f}%"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Show all years comparison
+    with st.expander("📊 View All Years - Component Effectiveness"):
+        effectiveness_display = effectiveness_df.sort_values(['Component', 'Year']).copy()
+        st.dataframe(
+            effectiveness_display.style.format({
+                'Value (SAR)': "{:,.0f}",
+                'Contribution to LC (%)': "{:.2f}%",
+                'Impact on LC Score (%)': "{:.2f}%"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+else:
+    st.info("Component effectiveness is shown in 'View Scenarios' mode")
+
+st.divider()
+
+# --- Year-over-Year Growth Comparison ---
+st.markdown("## 📊 Year-over-Year Growth Comparison")
+
+if mode == "📊 View Scenarios":
+    # Build YoY comparison data
+    yoy_data = []
+    
+    df_sorted = df_scenario.sort_values('Year')
+    
+    components = ['Saudi_Compensation', 'Foreign_Compensation', 'Goods_Services', 'Training', 'Total_LC', 'Total_Cost']
+    component_display = {
+        'Saudi_Compensation': '🇸🇦 Saudi-Workforce',
+        'Foreign_Compensation': '🌍 Foreign-Workforce',
+        'Goods_Services': '📦 Goods & Services',
+        'Training': '🎓 Training',
+        'Total_LC': '💰 Total LC',
+        'Total_Cost': '📊 Total Cost'
+    }
+    
+    for i in range(1, len(df_sorted)):
+        prev_row = df_sorted.iloc[i-1]
+        curr_row = df_sorted.iloc[i]
+        year_range = f"{int(prev_row['Year'])} → {int(curr_row['Year'])}"
+        
+        for comp in components:
+            prev_val = prev_row[comp]
+            curr_val = curr_row[comp]
+            
+            if prev_val != 0:
+                yoy_change = ((curr_val - prev_val) / prev_val) * 100
+            else:
+                yoy_change = 0
+            
+            yoy_data.append({
+                'Year Range': year_range,
+                'Component': component_display[comp],
+                'Previous Year Value (SAR)': int(prev_val),
+                'Current Year Value (SAR)': int(curr_val),
+                'YoY Change (%)': round(yoy_change, 2)
+            })
+    
+    yoy_df = pd.DataFrame(yoy_data)
+    
+    # Define component order for consistency
+    component_order = ['🇸🇦 Saudi-Workforce', '🌍 Foreign-Workforce', '📦 Goods & Services', '🎓 Training', '💰 Total LC', '📊 Total Cost']
+    yoy_df['Component'] = pd.Categorical(yoy_df['Component'], categories=component_order, ordered=True)
+    yoy_df = yoy_df.sort_values(['Year Range', 'Component'])
+    
+    # Show YoY for selected year
+    selected_range = yoy_df[yoy_df['Year Range'].str.endswith(str(int(selected_year)))].copy()
+    
+    if len(selected_range) > 0:
+        st.markdown(f"### YoY Growth - Year {int(selected_year)}")
+        st.dataframe(
+            selected_range[['Component', 'Previous Year Value (SAR)', 'Current Year Value (SAR)', 'YoY Change (%)']].style.format({
+                'Previous Year Value (SAR)': "{:,.0f}",
+                'Current Year Value (SAR)': "{:,.0f}",
+                'YoY Change (%)': "{:.2f}%"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+    
+    # Show all years comparison
+    with st.expander("📊 View All Years - YoY Growth"):
+        st.dataframe(
+            yoy_df.style.format({
+                'Previous Year Value (SAR)': "{:,.0f}",
+                'Current Year Value (SAR)': "{:,.0f}",
+                'YoY Change (%)': "{:.2f}%"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+else:
+    st.info("Year-over-Year comparison is shown in 'View Scenarios' mode")
+
+st.divider()
+
 # --- Detailed Data Table | جدول البيانات التفصيلية ---
 st.markdown("## 📋 Detailed Data")
 
-display_columns = ['Year', 'Type', 'Compensation', 'Goods_Services', 'CapEx', 'Training', 'Depreciation', 'Total_LC', 'Total_Cost', 'LC_Score_%']
+data_tabs = st.tabs(["📊 Chart View", "📋 Table View"])
+
+display_columns = ['Year', 'Type', 'Saudi_Compensation', 'Foreign_Compensation', 'Goods_Services', 'Training', 'Depreciation', 'Total_LC', 'Total_Cost', 'LC_Score_%']
 df_display = df_scenario[display_columns].copy()
 
-st.dataframe(
-    df_display.style.format({
-        'Compensation': "{:,.0f}",
-        'Goods_Services': "{:,.0f}",
-        'CapEx': "{:,.0f}",
-        'Training': "{:,.0f}",
-        'Depreciation': "{:,.0f}",
-        'Total_LC': "{:,.0f}",
-        'Total_Cost': "{:,.0f}",
-        'LC_Score_%': "{:.2f}%"
-    }),
-    use_container_width=True,
-    height=350
-)
+# Define column order for consistency
+column_order = ['Year', 'Type', 'Saudi_Compensation', 'Foreign_Compensation', 'Goods_Services', 'Training', 'Total_LC', 'Total_Cost']\
+
+with data_tabs[0]:
+    st.markdown("### Data Visualization")
+    
+    # Create line chart for all components over time
+    fig_data = px.line(
+        df_scenario,
+        x="Year",
+        y=["Saudi_Compensation", "Foreign_Compensation", "Goods_Services", "Training", "Depreciation"],
+        title="LC Components Over Time",
+        labels={"value": "Amount (SAR)", "variable": "Component"},
+        markers=True
+    )
+    fig_data.update_layout(
+        height=450,
+        template="plotly_white",
+        font=dict(size=12),
+        hovermode='x unified'
+    )
+    st.plotly_chart(fig_data, use_container_width=True)
+    
+    # Bar chart comparing Total LC vs Total Cost with LC Score on secondary axis
+    df_chart = df_scenario.copy()
+    df_chart['Total_LC_M'] = df_chart['Total_LC'] / 1e6
+    df_chart['Total_Cost_M'] = df_chart['Total_Cost'] / 1e6
+    
+    fig_comparison = px.bar(
+        df_chart,
+        x="Year",
+        y=["Total_LC_M", "Total_Cost_M"],
+        title="Total LC vs Total Cost Comparison (with LC Score)",
+        barmode="group",
+        labels={"value": "Amount (SAR Millions)", "variable": "Type"}
+    )
+    
+    # Add LC Score line on secondary axis
+    fig_comparison.add_scatter(
+        x=df_chart['Year'],
+        y=df_chart['LC_Score_%'],
+        mode='lines+markers',
+        name='LC Score (%)',
+        line=dict(color='green', width=3),
+        marker=dict(size=8),
+        yaxis='y2'
+    )
+    
+    fig_comparison.update_layout(
+        height=450,
+        template="plotly_white",
+        font=dict(size=12),
+        yaxis2=dict(
+            title='LC Score (%)',
+            overlaying='y',
+            side='right'
+        )
+    )
+    st.plotly_chart(fig_comparison, use_container_width=True)
+
+with data_tabs[1]:
+    st.markdown("### Data Table")
+    st.dataframe(
+        df_display.style.format({
+            'Saudi_Compensation': "{:,.0f}",
+            'Foreign_Compensation': "{:,.0f}",
+            'Goods_Services': "{:,.0f}",
+            'Training': "{:,.0f}",
+            'Depreciation': "{:,.0f}",
+            'Total_LC': "{:,.0f}",
+            'Total_Cost': "{:,.0f}",
+            'LC_Score_%': "{:.2f}%"
+        }),
+        use_container_width=True,
+        height=350
+    )
 
 # --- Download Data | تحميل البيانات ---
 st.markdown("## 📥 Export")
@@ -552,11 +882,11 @@ if mode == "🎯 Custom Scenario":
     
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        st.metric("💰 Compensation (%)", f"{g_comp*100:.1f}")
+        st.metric("🇸🇦 Saudi Comp. (%)", f"{g_saudi*100:.1f}")
     with col2:
-        st.metric("📦 Goods & Services (%)", f"{g_goods*100:.1f}")
+        st.metric("🌍 Foreign Comp. (%)", f"{g_foreign*100:.1f}")
     with col3:
-        st.metric("🏗️ Capital Expenses (%)", f"{g_capex*100:.1f}")
+        st.metric("📦 Goods & Services (%)", f"{g_goods*100:.1f}")
     with col4:
         st.metric("🎓 Training (%)", f"{g_train*100:.1f}")
     with col5:
@@ -567,13 +897,33 @@ else:
     if mode == "📊 View Scenarios":
         st.markdown("## 📊 Scenario Comparison Details")
         
-        scenarios_2028 = df_all[df_all['Year'] == 2028].copy()
+        scenarios_2028_list = []
+        for scenario in ['base', 'conservative', 'optimistic']:
+            scenario_multipliers = {
+                'base': 1.0,
+                'conservative': 0.7,
+                'optimistic': 1.3
+            }
+            multiplier = scenario_multipliers.get(scenario, 1.0)
+            active_assumptions = {
+                'saudi': base_assumptions['saudi'] * multiplier / 100,
+                'foreign': base_assumptions['foreign'] * multiplier / 100,
+                'goods': base_assumptions['goods'] * multiplier / 100,
+                'train': base_assumptions['train'] * multiplier / 100,
+                'cost': base_assumptions['cost'] * multiplier / 100
+            }
+            df_temp = generate_custom_forecast(df_hist, active_assumptions)
+            year_row = df_temp[df_temp['Year'] == 2028].iloc[0]
+            scenarios_2028_list.append({
+                'scenario': scenario,
+                'data': year_row
+            })
         
         col1, col2, col3 = st.columns(3)
         
-        base_data = scenarios_2028[scenarios_2028['Scenario'] == 'base'].iloc[0]
-        conservative_data = scenarios_2028[scenarios_2028['Scenario'] == 'conservative'].iloc[0]
-        optimistic_data = scenarios_2028[scenarios_2028['Scenario'] == 'optimistic'].iloc[0]
+        base_data = scenarios_2028_list[0]['data']
+        conservative_data = scenarios_2028_list[1]['data']
+        optimistic_data = scenarios_2028_list[2]['data']
         
         with col1:
             st.markdown("### 🟢 Base Case")
