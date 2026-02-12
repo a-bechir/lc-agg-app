@@ -98,36 +98,36 @@ def load_historical_data():
             hist_data = []
             for year in [2024, 2023, 2022, 2021]:
                 if year == 2024:
-                    saudi_comp = 51.836108e6
-                    foreign_lc = 0  # Will be calculated from total
+                    saudi_comp = 18.161063e6
+                    foreign_lc = 33.675045e6
                     goods = 104.271291e6
                     train = 0.263861e6
                     depr = 4.509642e6
                     total_lc = 160.880903e6
                     total_cost = 471.881650e6
                 elif year == 2023:
-                    saudi_comp = 36.893588e6
-                    foreign_lc = 0
+                    saudi_comp = 15.215027e6
+                    foreign_lc = 21.678560e6
                     goods = 58.111403e6
                     train = 0.081244e6
                     depr = 3.834302e6
                     total_lc = 98.920537e6
                     total_cost = 259.740844e6
                 elif year == 2022:
-                    saudi_comp = 35.714214e6
-                    foreign_lc = 0
+                    saudi_comp = 16.632800e6
+                    foreign_lc = 19.081414e6
                     goods = 46.611594e6
                     train = 1.376612e6
                     depr = 4.436843e6
                     total_lc = 88.139263e6
                     total_cost = 280.447547e6
                 else:  # 2021
-                    saudi_comp = 31.718189e6
-                    foreign_lc = 0
-                    goods = 37.762845e6
+                    saudi_comp = 13.169354e6
+                    foreign_lc = 18.548835e6
+                    goods = 36.615275e6
                     train = 0.010321e6
                     depr = 8.023705e6
-                    total_lc = 77.515060e6
+                    total_lc = 76.367490e6
                     total_cost = 289.923261e6
                 
                 hist_data.append({
@@ -1028,5 +1028,4 @@ st.markdown("""
 **📅 Local Content Forecasting Dashboard** | Updated: 2026-01-23  
 **Built with:** Streamlit, Plotly, Pandas | License: Proprietary
 """)
-
 
