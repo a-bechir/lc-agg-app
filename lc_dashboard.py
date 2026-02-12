@@ -195,7 +195,7 @@ def generate_custom_forecast(df_hist, growth_rates):
         goods = last_actual['Goods_Services'] * ((1 + growth_rates['goods']) ** n)
         train = last_actual['Training'] * ((1 + growth_rates['train']) ** n)
         depr = last_actual['Depreciation']
-        lc_workforce = last_actual['LC_from_Workforce'] * ((1 + growth_rates['saudi']) ** n)
+        lc_workforce = saudi + foreign
         
         total_lc = saudi + foreign + goods + train + depr
         total_cost = last_actual['Total_Cost'] * ((1 + growth_rates['cost']) ** n)
