@@ -135,7 +135,7 @@ def load_historical_data():
                     'Type': 'Actual',
                     'Saudi_Compensation': saudi_comp,
                     'Foreign_Compensation': foreign_lc,
-                    'LC_from_Workforce': saudi_comp,
+                    'LC_from_Workforce': saudi_comp + foreign_lc,
                     'Goods_Services': goods,
                     'Training': train,
                     'Depreciation': depr,
